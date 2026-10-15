@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import hmac
 import os
 import re
 import socket
@@ -11,7 +12,7 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,27 @@ app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS','ht
 USER_AGENT = 'CrawlerResearchLab/0.1 (+respectful educational crawler)'
 MAX_BYTES = 1_000_000
 jobs = {}
+MAX_ACTIVE_JOBS = 2
+MAX_STORED_JOBS = 100
+
+
+def require_api_token(authorization: str | None = Header(default=None)):
+    expected = os.getenv('CRAWLER_API_TOKEN', '').strip()
+    if not expected:
+        if os.getenv('RENDER') or os.getenv('CRAWLER_REQUIRE_AUTH') == '1':
+            raise HTTPException(status_code=503, detail='Crawler API token not configured')
+        return
+    if not authorization or not authorization.startswith('Bearer ') or not hmac.compare_digest(authorization[7:], expected):
+        raise HTTPException(status_code=401, detail='Valid API bearer token required')
+
+
+def check_allowed_host(host: str):
+    allowed = [value.strip().lower() for value in os.getenv('CRAWL_ALLOWED_HOSTS', '').split(',') if value.strip()]
+    if os.getenv('RENDER') and not allowed:
+        raise ValueError('Configure CRAWL_ALLOWED_HOSTS before enabling public crawling')
+    if allowed and host.lower() not in allowed:
+        raise ValueError('Host is not in this deployment\'s crawl allowlist')
+
 
 class CrawlRequest(BaseModel):
     url: str
@@ -44,6 +66,7 @@ def normalize(url):
 def validate_public(url):
     parsed = urlparse(normalize(url))
     host = parsed.hostname
+    check_allowed_host(host)
     if host == 'localhost' or host.endswith('.localhost') or host.endswith('.local'):
         raise ValueError('Local destinations are blocked')
     try:
@@ -148,24 +171,33 @@ def health():
     return {'status':'ok'}
 
 @app.post('/api/crawl')
-async def start_crawl(request: CrawlRequest):
+async def start_crawl(request: CrawlRequest, _: None = Depends(require_api_token)):
     try:
         validate_public(request.url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if sum(job['status'] == 'running' for job in jobs.values()) >= MAX_ACTIVE_JOBS:
+        raise HTTPException(status_code=429, detail='Too many active crawl jobs; retry later')
+    if len(jobs) >= MAX_STORED_JOBS:
+        for old_id in list(jobs):
+            if jobs[old_id]['status'] != 'running':
+                del jobs[old_id]
+                break
+        else:
+            raise HTTPException(status_code=429, detail='Job storage limit reached')
     job_id = str(uuid.uuid4())
     jobs[job_id] = {'status':'running','nodes':[],'edges':[],'errors':[]}
     asyncio.create_task(crawl(job_id,request))
     return {'job_id':job_id}
 
 @app.get('/api/crawl/{job_id}')
-def get_crawl(job_id: str):
+def get_crawl(job_id: str, _: None = Depends(require_api_token)):
     if job_id not in jobs:
         raise HTTPException(404,'Job not found')
     return jobs[job_id]
 
 @app.post('/api/research')
-async def research(request: QuestionRequest):
+async def research(request: QuestionRequest, _: None = Depends(require_api_token)):
     job = jobs.get(request.job_id)
     if not job or not job['nodes']:
         raise HTTPException(400,'Crawl pages before asking a question')
