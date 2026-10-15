@@ -41,7 +41,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md backend frontend .gitignore .github/workflows/quality.yml
+          git add README.md backend frontend .gitignore
           if ! git diff --cached --quiet; then
             git commit -m "Extract Python crawler and React PWA source"
             git push
