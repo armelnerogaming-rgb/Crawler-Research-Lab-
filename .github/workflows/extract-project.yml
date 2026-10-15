@@ -1,0 +1,48 @@
+name: Extract uploaded project
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/extract-project.yml'
+permissions:
+  contents: write
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Extract starter safely
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          archive=Path('crawler-research-lab-starter.zip')
+          root=Path.cwd().resolve()
+          with ZipFile(archive) as z:
+              for item in z.infolist():
+                  rel=Path(item.filename)
+                  if not rel.parts or rel.parts[0] != 'web-crawler-starter':
+                      raise ValueError('Unexpected ZIP root')
+                  relative=Path(*rel.parts[1:])
+                  if not relative.parts:
+                      continue
+                  target=(root / relative).resolve()
+                  if not target.is_relative_to(root):
+                      raise ValueError('Unsafe archive path')
+                  if item.is_dir():
+                      target.mkdir(parents=True,exist_ok=True)
+                  else:
+                      target.parent.mkdir(parents=True,exist_ok=True)
+                      target.write_bytes(z.read(item))
+          PY
+      - name: Commit extracted source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md backend frontend .gitignore .github/workflows/quality.yml
+          if ! git diff --cached --quiet; then
+            git commit -m "Extract Python crawler and React PWA source"
+            git push
+          fi
