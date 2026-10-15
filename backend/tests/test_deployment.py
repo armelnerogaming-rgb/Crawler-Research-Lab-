@@ -31,3 +31,16 @@ def test_render_requires_host_allowlist(monkeypatch):
     monkeypatch.delenv('CRAWL_ALLOWED_HOSTS', raising=False)
     with pytest.raises(ValueError):
         check_allowed_host('example.com')
+
+
+def test_full_website_url_in_allowlist(monkeypatch):
+    monkeypatch.setenv('CRAWL_ALLOWED_HOSTS', 'https://www.scrapethissite.com/pages/')
+    check_allowed_host('www.scrapethissite.com')
+    with pytest.raises(ValueError, match='not in the configured allowlist'):
+        check_allowed_host('scrapethissite.com')
+
+
+def test_multiple_allowlist_formats(monkeypatch):
+    monkeypatch.setenv('CRAWL_ALLOWED_HOSTS', 'https://example.com/path, www.scrapethissite.com')
+    check_allowed_host('example.com')
+    check_allowed_host('www.scrapethissite.com')
