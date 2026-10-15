@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: crawler-research-lab-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: CRAWLER_REQUIRE_AUTH
+        value: "1"
+      - key: CRAWLER_API_TOKEN
+        generateValue: true
+      - key: CRAWL_ALLOWED_HOSTS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
