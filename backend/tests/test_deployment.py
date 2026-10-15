@@ -31,3 +31,17 @@ def test_render_requires_host_allowlist(monkeypatch):
     monkeypatch.delenv('CRAWL_ALLOWED_HOSTS', raising=False)
     with pytest.raises(ValueError):
         check_allowed_host('example.com')
+
+
+def test_allowlist_accepts_pasted_full_url(monkeypatch):
+    monkeypatch.setenv('CRAWL_ALLOWED_HOSTS', 'https://www.scrapethissite.com/pages/')
+    check_allowed_host('www.scrapethissite.com')
+    with pytest.raises(ValueError):
+        check_allowed_host('other.scrapethissite.com')
+
+
+def test_allowlist_rejects_credentials_and_nonstandard_ports(monkeypatch):
+    for value in ['https://user:password@example.org/', 'https://example.org:8080/']:
+        monkeypatch.setenv('CRAWL_ALLOWED_HOSTS', value)
+        with pytest.raises(ValueError):
+            check_allowed_host('example.org')

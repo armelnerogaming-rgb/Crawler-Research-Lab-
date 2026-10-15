@@ -35,11 +35,29 @@ def require_api_token(authorization: str | None = Header(default=None)):
         raise HTTPException(status_code=401, detail='Valid API bearer token required')
 
 
+def parse_allowed_hosts(value: str) -> set[str]:
+    """Accept comma-separated hostnames or pasted public HTTP(S) URLs.
+
+    Permissions remain host-exact: a URL path does not widen the allowlist.
+    """
+    hosts = set()
+    for item in value.split(','):
+        entry = item.strip()
+        if not entry:
+            continue
+        parsed = urlparse(entry if '://' in entry else 'https://' + entry)
+        if (parsed.scheme not in ('http', 'https') or not parsed.hostname
+                or parsed.username or parsed.password or parsed.port not in (None, 80, 443)):
+            raise ValueError('Invalid CRAWL_ALLOWED_HOSTS entry')
+        hosts.add(parsed.hostname.lower().rstrip('.'))
+    return hosts
+
+
 def check_allowed_host(host: str):
-    allowed = [value.strip().lower() for value in os.getenv('CRAWL_ALLOWED_HOSTS', '').split(',') if value.strip()]
+    allowed = parse_allowed_hosts(os.getenv('CRAWL_ALLOWED_HOSTS', ''))
     if os.getenv('RENDER') and not allowed:
         raise ValueError('Configure CRAWL_ALLOWED_HOSTS before enabling public crawling')
-    if allowed and host.lower() not in allowed:
+    if allowed and host.lower().rstrip('.') not in allowed:
         raise ValueError('Host is not in this deployment\'s crawl allowlist')
 
 
