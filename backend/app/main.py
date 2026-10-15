@@ -36,11 +36,19 @@ def require_api_token(authorization: str | None = Header(default=None)):
 
 
 def check_allowed_host(host: str):
-    allowed = [value.strip().lower() for value in os.getenv('CRAWL_ALLOWED_HOSTS', '').split(',') if value.strip()]
+    allowed = set()
+    for entry in os.getenv('CRAWL_ALLOWED_HOSTS', '').split(','):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parsed = urlparse(entry if '://' in entry else 'https://' + entry)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError('Invalid CRAWL_ALLOWED_HOSTS entry; use a hostname or HTTP(S) website URL')
+        allowed.add(parsed.hostname.lower().rstrip('.'))
     if os.getenv('RENDER') and not allowed:
         raise ValueError('Configure CRAWL_ALLOWED_HOSTS before enabling public crawling')
-    if allowed and host.lower() not in allowed:
-        raise ValueError('Host is not in this deployment\'s crawl allowlist')
+    if allowed and host.lower().rstrip('.') not in allowed:
+        raise ValueError(f'Crawl hostname {host} is not in the configured allowlist')
 
 
 class CrawlRequest(BaseModel):
